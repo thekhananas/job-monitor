@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "employer-job-monitor"
+version = "0.1.0"
+description = "Monitor public employer boards and deliver new-job alerts."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+]
+
+[project.optional-dependencies]
+review = ["discord.py==2.7.1"]
+
+[project.scripts]
+job-monitor = "job_monitor.monitor:main"
+job-monitor-review = "job_monitor.review_bot:main"
+job-monitor-rank = "job_monitor.rank_jobs:main"
+
+[tool.setuptools.packages.find]
+include = ["job_monitor*"]

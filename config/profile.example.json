@@ -1,0 +1,8 @@
+{
+  "experience_years": 2,
+  "allow_uk_remote": true,
+  "allow_ambiguous_remote": true,
+  "ambiguous_remote_regions": ["Europe", "EMEA", "Worldwide", "Global", "Anywhere"],
+  "excluded_title_keywords": ["principal", "director", "head of", "engineering manager"],
+  "title_keywords": ["software engineer", "backend engineer", "machine learning engineer", "ai engineer", "research engineer"]
+}

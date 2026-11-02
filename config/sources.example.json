@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "baseline_policy": "suppress",
+  "sources": [
+    {"provider": "greenhouse", "board": "anthropic", "company": "Anthropic"},
+    {"provider": "lever", "board": "apolloresearch", "company": "Apollo Research"},
+    {"provider": "ashby", "board": "recraft", "company": "Recraft"}
+  ]
+}

@@ -1,0 +1,24 @@
+[Unit]
+Description=Check public employer boards and deliver pending job leads
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/job-monitor
+EnvironmentFile=/home/ubuntu/.config/job-monitor/notifications.env
+EnvironmentFile=-/home/ubuntu/.config/job-monitor/review-worker.env
+ExecStart=/usr/bin/python3 -B -u scripts/monitor.py --watch --interval 60 --notify --channel discord
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/job-monitor
+
+[Install]
+WantedBy=multi-user.target

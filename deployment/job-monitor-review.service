@@ -1,0 +1,22 @@
+[Unit]
+Description=Owner-only Discord job review and alert settings
+After=network-online.target job-monitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/job-monitor
+EnvironmentFile=/home/ubuntu/.config/job-monitor/review.env
+ExecStart=/home/ubuntu/job-monitor/.venv-review/bin/python -B -u scripts/review_bot.py
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/job-monitor
+
+[Install]
+WantedBy=multi-user.target

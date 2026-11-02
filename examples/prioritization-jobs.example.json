@@ -1,0 +1,79 @@
+{
+  "kind": "synthetic_calibration_examples_not_actual_vacancies",
+  "note": "These exercise parsing and explanation only. They are not user-labeled evidence of ranking quality.",
+  "jobs": [
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "application-engineering",
+        "title": "AI Engineer",
+        "location": "London",
+        "url": "https://example.test/jobs/application-engineering",
+        "description": "Responsibilities\nBuild agentic systems with LangGraph and FastAPI.\nRequirements\nExperience with Python and PyTorch.\nYou will collaborate with senior engineers.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    },
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "training-stretch",
+        "title": "Member of Technical Staff, PostTraining",
+        "location": "London",
+        "url": "https://example.test/jobs/training-stretch",
+        "description": "Responsibilities\nDevelop post-training systems.\nRequirements\nPython experience is required.\nRLHF and distributed training experience are required.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    },
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "senior",
+        "title": "Senior AI Engineer",
+        "location": "London",
+        "url": "https://example.test/jobs/senior",
+        "description": "Requirements\nPython and PyTorch experience required.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    },
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "graduate-2027",
+        "title": "Graduate Machine Learning Engineer 2027",
+        "location": "London",
+        "url": "https://example.test/jobs/graduate-2027",
+        "description": "Requirements\nPython experience required.\nPreferred qualifications\nPyTorch experience.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    },
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "graduate-window",
+        "title": "Graduate ML Engineer",
+        "location": "London",
+        "url": "https://example.test/jobs/graduate-window",
+        "description": "Requirements\nCandidates must be graduating between 2025 and 2027.\nPython experience required.\nResponsibilities\nBuild machine learning applications.\nCopyright 2027.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    },
+    {
+      "company": "Example AI Lab",
+      "job": {
+        "id": "broad-team-role",
+        "title": "Technical Program Associate",
+        "team": "AI research",
+        "location": "London",
+        "url": "https://example.test/jobs/broad-team-role",
+        "description": "Responsibilities\nCoordinate model evaluation studies.\nRequirements\nClear technical communication is essential.\nPython experience is not required.",
+        "published_at": "",
+        "date_type": "unknown"
+      }
+    }
+  ]
+}
