@@ -29,6 +29,7 @@ FILES = (
     'job_monitor/notifications.py',
     'job_monitor/prioritization.py',
     'job_monitor/rank_jobs.py',
+    'job_monitor/rating.py',
     'job_monitor/review_bot.py',
     'job_monitor/review_runtime.py',
     'job_monitor/review_store.py',

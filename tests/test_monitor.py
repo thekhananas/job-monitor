@@ -1881,6 +1881,70 @@ class ReviewActivationContracts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(store.policy("123"), (1, PROFILE))
 
 
+class RatingContracts(unittest.TestCase):
+    def test_selected_alert_resolves_exact_url_and_never_creates_a_label(self):
+        from job_monitor.rating import resolve_alert, rating_text
+        with tempfile.TemporaryDirectory() as directory:
+            service, snapshot, _ = LearningContracts().fixture(directory, with_candidate=True)
+            record = service.review.job(snapshot['job_key'])
+            text = rating_text(record, PROFILE, now=time.time())
+            self.assertIn('Posting time unavailable', text)
+            self.assertNotIn('No model', text)
+            self.assertEqual(resolve_alert(service.review, text)['key'], snapshot['job_key'])
+            encoded = text.replace('/jobs/1>', '/jobs/%31?utm_source=discord>')
+            self.assertEqual(resolve_alert(service.review, encoded)['key'], snapshot['job_key'])
+            self.assertFalse(service.labels.path.exists())
+            self.assertEqual(service.review.policy('123'), (1, PROFILE))
+
+    def test_unknown_ambiguous_and_closed_postings_are_not_guessed(self):
+        from job_monitor.rating import resolve_alert
+        with tempfile.TemporaryDirectory() as directory:
+            service, snapshot, jobs = LearningContracts().fixture(directory)
+            text = '[View job & apply](<' + job()['url'] + '>)'
+            for content in ('unrelated message', text + '\n' + text,
+                            text.replace('/jobs/1', '/jobs/1?job_id=other')):
+                with self.assertRaises(ValueError):
+                    resolve_alert(service.review, content)
+            duplicate = job('duplicate', url=job()['url'])
+            service.review.project(SOURCE, [job(), duplicate], '', time.time(),
+                {'ashby:example:' + item['id']: '2026-10-12T10:00:00Z' for item in [job(), duplicate]})
+            with self.assertRaisesRegex(ValueError, 'more than one'):
+                resolve_alert(service.review, text)
+            service.review.project(SOURCE, [], '', time.time(), {})
+            # Duplicate historical identities remain ambiguous, even when closed.
+            with self.assertRaises(ValueError):
+                resolve_alert(service.review, text)
+            self.assertFalse(service.labels.path.exists())
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = LearningContracts().fixture(directory)
+            service.review.project(SOURCE, [], '', time.time(), {})
+            with self.assertRaisesRegex(ValueError, 'no longer'):
+                resolve_alert(service.review, text)
+
+    def test_new_rating_requires_candidate_context_and_preserves_legacy_labels(self):
+        from job_monitor.learning import QUESTION
+        with tempfile.TemporaryDirectory() as directory:
+            service, snapshot, _ = LearningContracts().fixture(directory)
+            with self.assertRaisesRegex(ValueError, 'candidate profile'):
+                service.capture('123', service.review.job(snapshot['job_key']), 1, PROFILE,
+                                selection={'view': 'discord_alert'}, require_candidate=True)
+            self.assertFalse(service.labels.path.exists())
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _ = LearningContracts().fixture(directory, with_candidate=True)
+            record = service.review.job('ashby:example:1')
+            with patch('job_monitor.learning.TARGET', 'worth_applying_v1'), patch('job_monitor.learning.QUESTION', 'Would you spend time applying to this role?'):
+                previous = service.capture('123', record, 1, PROFILE, selection={'view': 'discord_jobs'})
+                service.decide('123', previous, 'no', 'legacy:1')
+            current = service.capture('123', record, 1, PROFILE, selection={'view': 'discord_alert'}, require_candidate=True)
+            self.assertEqual(current['question'], QUESTION)
+            self.assertIsNone(service.labels.latest('123', current))
+            service.decide('123', current, 'yes', 'new:1')
+            with sqlite3.connect(service.labels.path) as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM decisions').fetchone()[0], 2)
+                targets = {json.loads(row[0])['target'] for row in db.execute('SELECT payload FROM snapshots')}
+            self.assertEqual(targets, {'worth_applying_v1', TARGET})
+
+
 @unittest.skipUnless(importlib.util.find_spec("discord"), "Optional Discord SDK unavailable; run tests.test_monitor.DiscordReviewContracts in the review virtual environment")
 class DiscordReviewContracts(unittest.IsolatedAsyncioTestCase):
     interaction_ids = itertools.count(1)
@@ -1977,91 +2041,117 @@ class DiscordReviewContracts(unittest.IsolatedAsyncioTestCase):
             finally:
                 await client.close()
 
-    async def test_yes_no_skip_correction_reason_and_undo_use_real_owner_only_views(self):
+    async def test_rating_choice_correction_reason_undo_and_storage_failure(self):
         from job_monitor.review_bot import build_client
         import discord
         with tempfile.TemporaryDirectory() as directory:
-            service, snapshot, jobs = LearningContracts().fixture(directory, with_candidate=True)
+            service, snapshot, _ = LearningContracts().fixture(directory, with_candidate=True)
             client = build_client(service.review, 123, 789, learning=service)
             def control(view, label):
                 return next(item for item in view.children if isinstance(item, discord.ui.Button) and item.label == label)
-            async def open_jobs():
+            async def options(view):
+                interaction = self.interaction()
+                await control(view, 'More').callback(interaction)
+                return interaction.edit_original_response.call_args.kwargs['view']
+            async def open_rating():
                 opened = self.interaction()
                 await client.tree.get_command('jobs').callback(opened)
-                return opened.followup.send.call_args.kwargs['view']
+                browsing = opened.followup.send.call_args.kwargs['view']
+                clicked = self.interaction()
+                await control(browsing, 'Rate this job').callback(clicked)
+                return clicked.followup.send.call_args.kwargs['view']
             try:
-                view = await open_jobs()
+                view = await open_rating()
+                self.assertEqual([item.label for item in view.children], ['Yes', 'No'])
+                for interaction in (self.interaction(456), self.interaction()):
+                    if interaction.user.id == 123:
+                        interaction.guild_id = 999
+                    await control(view, 'Yes').callback(interaction)
+                    interaction.response.send_message.assert_awaited_once()
                 self.assertFalse(service.labels.path.exists())
-                denied = self.interaction(456)
-                await control(view, 'Yes').callback(denied)
-                denied.response.send_message.assert_awaited_once()
-                wrong_server = self.interaction()
-                wrong_server.guild_id = 999
-                await control(view, 'No').callback(wrong_server)
-                wrong_server.response.send_message.assert_awaited_once()
+                failed = self.interaction()
+                with patch.object(service.labels, 'record', side_effect=sqlite3.OperationalError('busy')):
+                    await control(view, 'Yes').callback(failed)
                 self.assertFalse(service.labels.path.exists())
-                await control(view, 'Skip').callback(self.interaction())
-                self.assertFalse(service.labels.path.exists())
-                view = await open_jobs()
-                # A new listing changes the page order, but saving stays on the labeled job.
-                extra = job('new', title='Software Engineer')
-                changed = [*jobs, extra]
-                service.review.project(SOURCE, changed, '', time.time(),
-                    {'ashby:example:' + item['id']: '2026-10-12T10:00:00Z' if item['id'] != 'new' else '2026-11-01T00:00:00Z' for item in changed})
+                failed.edit_original_response.assert_not_awaited()
                 clicked = self.interaction()
                 await control(view, 'Yes').callback(clicked)
                 self.assertEqual(service.labels.latest('123', snapshot)['choice'], 'yes')
+                self.assertIn('Saved: **Yes**', clicked.edit_original_response.call_args.kwargs['content'])
                 view = clicked.edit_original_response.call_args.kwargs['view']
-                self.assertEqual(control(view, 'View posting').url, job()['url'])
-                self.assertEqual(control(view, 'Yes').style, discord.ButtonStyle.primary)
-                changed_choice = self.interaction()
-                await control(view, 'No').callback(changed_choice)
+                self.assertEqual([item.label for item in view.children], ['Undo', 'More'])
+                stale_view = view
+                view = await options(view)
+                changed = self.interaction()
+                await control(view, 'No').callback(changed)
                 self.assertEqual(service.labels.latest('123', snapshot)['choice'], 'no')
-                view = changed_choice.edit_original_response.call_args.kwargs['view']
+                # An older card cannot undo a more recent edit.
+                stale = self.interaction()
+                await control(stale_view, 'Undo').callback(stale)
+                stale.followup.send.assert_awaited_once()
+                self.assertEqual(service.labels.latest('123', snapshot)['choice'], 'no')
+                view = changed.edit_original_response.call_args.kwargs['view']
                 reverted = self.interaction()
-                await control(view, 'Undo decision').callback(reverted)
+                await control(view, 'Undo').callback(reverted)
                 self.assertEqual(service.labels.latest('123', snapshot)['choice'], 'yes')
-                view = reverted.edit_original_response.call_args.kwargs['view']
+                view = await options(reverted.edit_original_response.call_args.kwargs['view'])
+                select = next(item for item in view.children if isinstance(item, discord.ui.Select))
+                reasoned = self.interaction()
+                with patch.object(type(select), 'values', new_callable=PropertyMock, return_value=['interest']):
+                    await select.callback(reasoned)
+                self.assertEqual(service.labels.latest('123', snapshot)['reason'], 'interest')
+                view = await options(reasoned.edit_original_response.call_args.kwargs['view'])
                 withdrawn = self.interaction()
                 await control(view, 'Clear decision').callback(withdrawn)
                 self.assertIsNone(service.labels.latest('123', snapshot)['choice'])
+                # Timeout removes controls and tells the user how to reopen.
                 view = withdrawn.edit_original_response.call_args.kwargs['view']
-                restored = self.interaction()
-                await control(view, 'Undo decision').callback(restored)
-                view = restored.edit_original_response.call_args.kwargs['view']
-                select = next(item for item in view.children if isinstance(item, discord.ui.Select))
-                with patch.object(type(select), 'values', new_callable=PropertyMock, return_value=['interest']):
-                    await select.callback(self.interaction())
-                self.assertEqual(service.labels.latest('123', snapshot)['reason'], 'interest')
-                self.assertEqual(service.review.policy('123'), (1, PROFILE))
-                with service.review.connect() as db:
-                    self.assertEqual(db.execute('SELECT COUNT(*) FROM feedback').fetchone()[0], 0)
+                await view.on_timeout()
+                view.message.edit.assert_awaited_once()
+                self.assertIn('expired', view.message.edit.call_args.kwargs['content'])
             finally:
                 await client.close()
 
-    async def test_failed_label_storage_keeps_browsing_and_does_not_infer_no(self):
+    async def test_message_action_trust_exact_job_command_coexistence_and_missing_context(self):
         from job_monitor.review_bot import build_client
         import discord
         with tempfile.TemporaryDirectory() as directory:
-            service, snapshot, _ = LearningContracts().fixture(directory)
-            client = build_client(service.review, 123, 789, learning=service)
+            service, snapshot, _ = LearningContracts().fixture(directory, with_candidate=True)
+            client = build_client(service.review, 123, 789, learning=service, alert_channel_id=321, alert_webhook_id=654)
+            action = client.tree.get_command('Rate this job', type=discord.AppCommandType.message)
+            message = SimpleNamespace(id=999, guild=SimpleNamespace(id=789), channel=SimpleNamespace(id=321),
+                                      webhook_id=654, content='[View job & apply](<' + job()['url'] + '>)')
+            def clicked(user=123):
+                interaction = self.interaction(user)
+                interaction.channel_id = 321
+                return interaction
             try:
-                opened = self.interaction()
-                await client.tree.get_command('jobs').callback(opened)
-                view = opened.followup.send.call_args.kwargs['view']
-                yes = next(item for item in view.children if isinstance(item, discord.ui.Button) and item.label == 'Yes')
-                clicked = self.interaction()
-                with patch.object(service.labels, 'record', side_effect=sqlite3.OperationalError('busy')):
-                    await yes.callback(clicked)
-                clicked.followup.send.assert_awaited_once()
+                self.assertIsNotNone(action)
+                self.assertEqual({item.name for item in client.tree.get_commands()}, {'jobs', 'review', 'filters', 'Rate this job'})
+                unauthorized = clicked(456)
+                await action.callback(unauthorized, message)
+                unauthorized.followup.send.assert_not_awaited()
+                for field, wrong in [('webhook_id', 111), ('channel', SimpleNamespace(id=111))]:
+                    original = getattr(message, field)
+                    setattr(message, field, wrong)
+                    denied = clicked()
+                    await action.callback(denied, message)
+                    self.assertNotIn('view', denied.followup.send.call_args.kwargs)
+                    setattr(message, field, original)
+                approved = clicked()
+                await action.callback(approved, message)
+                text = approved.followup.send.call_args.args[0]
+                self.assertIn(job()['url'], text)
+                self.assertIn('Would you consider applying?', text)
+                self.assertNotIn('No model', text)
                 self.assertFalse(service.labels.path.exists())
-                unavailable = self.interaction()
-                with patch.object(service.labels, 'latest', side_effect=sqlite3.OperationalError('busy')):
-                    await client.tree.get_command('jobs').callback(unavailable)
-                view = unavailable.followup.send.call_args.kwargs['view']
-                self.assertTrue(any(isinstance(item, discord.ui.Button) and item.url == job()['url'] for item in view.children))
-                self.assertFalse(any(isinstance(item, discord.ui.Button) and item.label == 'No' for item in view.children))
-                self.assertEqual(service.review.policy('123'), (1, PROFILE))
+                service.candidate_path.unlink()
+                missing = clicked()
+                await action.callback(missing, message)
+                self.assertNotIn('view', missing.followup.send.call_args.kwargs)
+                self.assertIn('candidate profile', missing.followup.send.call_args.args[0])
+                self.assertIn(job()['url'], missing.followup.send.call_args.args[0])
+                self.assertFalse(service.labels.path.exists())
             finally:
                 await client.close()
 

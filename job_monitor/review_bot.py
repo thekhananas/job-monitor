@@ -11,7 +11,8 @@ import time
 from job_monitor.review_store import ReviewConflict, ReviewStore
 from job_monitor.screening import normal_phrase, REJECTION_LABELS, DEFAULT_EXCLUDED_TITLES, first_publication
 from job_monitor.notifications import shortened
-from job_monitor.learning import LearningService, LearningStore, QUESTION, REASONS
+from job_monitor.learning import LearningService, LearningStore, REASONS
+from job_monitor.rating import resolve_alert, rating_text
 
 
 def settings_text(profile):
@@ -42,12 +43,18 @@ async def wait_for_activation(store, owner, version, *, timeout=30, interval=2):
         await asyncio.sleep(min(interval, remaining))
 
 
-def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None):
+def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None,
+                 alert_channel_id=None, alert_webhook_id=None):
     # Optional dependency: the existing poller and all domain checks stay standard-library only.
     import discord
     from discord import app_commands
     owner, guild_id = int(owner), int(guild_id)
     learning = learning or LearningService(store, LearningStore(store.path.with_name('learning.sqlite3')))
+    if bool(alert_channel_id) != bool(alert_webhook_id):
+        raise ValueError('Configure both the alert channel ID and webhook ID for message rating.')
+    if alert_channel_id and (not str(alert_channel_id).isdigit() or not str(alert_webhook_id).isdigit()):
+        raise ValueError('Alert channel and webhook IDs must be numeric.')
+    trusted_alert = (int(alert_channel_id), int(alert_webhook_id)) if alert_channel_id else None
 
     def safe(value, limit=300):
         return discord.utils.escape_mentions(discord.utils.escape_markdown(str(value)))[:limit]
@@ -288,9 +295,97 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
         button(view, "Browse all exclusions", browse, row=2)
         await display(interaction, text, view, replace=replace)
 
+    class RatingView(PersonalView):
+        def __init__(self, record, snapshot, decision, text, *, details=False):
+            super().__init__()
+            self.message = None
+            self.text = text
+
+            async def update(interaction, choice=None, *, undo=False, reason=None):
+                if not await permitted(interaction):
+                    return
+                await interaction.response.defer(ephemeral=True)
+                try:
+                    expected = decision['id'] if decision else None
+                    request = f'discord:{interaction.id}'
+                    if undo:
+                        current = await asyncio.to_thread(learning.undo, owner, snapshot, request, expected_id=expected)
+                    else:
+                        current = await asyncio.to_thread(learning.decide, owner, snapshot, choice, request,
+                                                          expected_id=expected, reason=reason)
+                    await render_rating(interaction, record, snapshot, current, replace=True)
+                    self.stop()
+                except (OSError, ValueError, sqlite3.Error) as error:
+                    message = str(error) if isinstance(error, ValueError) else 'Decision not confirmed. Reopen Rate this job to check before retrying.'
+                    await interaction.followup.send(message, ephemeral=True)
+
+            async def yes(interaction):
+                await update(interaction, 'yes')
+            async def no(interaction):
+                await update(interaction, 'no')
+            if not decision or decision['choice'] is None or details:
+                for label, action in (('Yes', yes), ('No', no)):
+                    selected = decision and decision['choice'] == label.lower()
+                    button(self, label, action, style=discord.ButtonStyle.primary if selected else discord.ButtonStyle.secondary)
+            if decision and decision['kind'] == 'decision':
+                async def undo(interaction):
+                    await update(interaction, undo=True)
+                button(self, 'Undo', undo)
+            if decision and decision['choice'] is not None:
+                async def more(interaction):
+                    if not await permitted(interaction):
+                        return
+                    await interaction.response.defer(ephemeral=True)
+                    await render_rating(interaction, record, snapshot, decision, replace=True, details=True)
+                    self.stop()
+                if not details:
+                    button(self, 'More', more)
+                else:
+                    async def clear(interaction):
+                        await update(interaction)
+                    button(self, 'Clear decision', clear, row=1)
+                    select = discord.ui.Select(placeholder='Reason (optional)', row=2, options=[
+                        discord.SelectOption(label='No reason', value='none', default=decision['reason'] is None),
+                        *[discord.SelectOption(label=label, value=key, default=decision['reason'] == key)
+                          for key, label in REASONS.items()]])
+                    async def reason(interaction):
+                        await update(interaction, decision['choice'], reason=None if select.values[0] == 'none' else select.values[0])
+                    select.callback = reason
+                    self.add_item(select)
+
+        async def on_timeout(self):
+            if self.message is not None:
+                try:
+                    await self.message.edit(content=self.text + '\n-# Controls expired. Reopen Rate this job from the original alert, or /jobs.', view=None)
+                except discord.HTTPException:
+                    pass  # An expired ephemeral webhook cannot edit its old card.
+
+    async def render_rating(interaction, record, snapshot, decision, *, replace=False, details=False):
+        text = rating_text(record, snapshot['screening']['profile'], now=time.time(), decision=decision)
+        view = RatingView(record, snapshot, decision, text, details=details)
+        if replace:
+            view.message = await interaction.edit_original_response(content=text, view=view)
+        else:
+            view.message = await interaction.followup.send(text, view=view, ephemeral=True, wait=True)
+
+    async def show_rating(interaction, key, *, selection, expected_record=None):
+        record = await asyncio.to_thread(store.job, key)
+        if expected_record and (record['hash'] != expected_record['hash'] or record['company'] != expected_record['company']):
+            raise ReviewConflict('This posting changed. Reopen Rate this job to review its current details.')
+        version, profile = await asyncio.to_thread(store.policy, owner)
+        try:
+            snapshot = await asyncio.to_thread(learning.capture, owner, record, version, profile,
+                                               selection=selection, require_candidate=True)
+            decision = await asyncio.to_thread(learning.labels.latest, owner, snapshot)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            message = str(error) if isinstance(error, ValueError) else 'Rating storage is unavailable. Reopen Rate this job to retry.'
+            text = rating_text(record, profile, now=time.time(), unavailable=message)
+            await interaction.followup.send(text, ephemeral=True)
+            return
+        await render_rating(interaction, record, snapshot, decision)
+
     class JobsView(PersonalView):
-        def __init__(self, record, reasons, version, *, rejected, offset, location, days, reason=None, title=None,
-                     learning_snapshot=None, decision=None):
+        def __init__(self, record, reasons, version, *, rejected, offset, location, days, reason=None, title=None):
             super().__init__()
             payload = json.loads(record["payload"])
             url = link(payload["url"])
@@ -305,58 +400,12 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
                     await interaction.response.defer(ephemeral=True)
                     await show_jobs(interaction, rejected=rejected, offset=offset - 1, location=location, days=days, reason=reason, title=title, replace=True)
                 button(self, "Previous job", previous_job)
-            if learning_snapshot is not None:
-                async def update_decision(interaction, choice=None, *, undo=False, preference_reason=None):
-                    if not await permitted(interaction):
-                        return
-                    await interaction.response.defer(ephemeral=True)
-                    try:
-                        expected = decision['id'] if decision else None
-                        request = f'discord:{interaction.id}'
-                        if undo:
-                            await asyncio.to_thread(learning.undo, owner, learning_snapshot, request, expected_id=expected)
-                        else:
-                            await asyncio.to_thread(learning.decide, owner, learning_snapshot, choice, request,
-                                                    expected_id=expected, reason=preference_reason)
-                    except (OSError, ValueError, sqlite3.Error) as error:
-                        message = str(error) if isinstance(error, ValueError) else 'Decision not confirmed. Reopen the job to check your saved choice before retrying.'
-                        await interaction.followup.send(message, ephemeral=True)
-                        return
-                    await show_jobs(interaction, rejected=rejected, offset=offset, location=location, days=days,
-                                    reason=reason, title=title, replace=True, anchor_key=record['key'],
-                                    learning_notice='Decision saved; current choice is shown below. No model was trained.')
-                async def yes(interaction):
-                    await update_decision(interaction, 'yes')
-                async def no(interaction):
-                    await update_decision(interaction, 'no')
-                async def skip(interaction):
-                    if not await permitted(interaction):
-                        return
-                    await interaction.response.defer(ephemeral=True)
-                    await show_jobs(interaction, rejected=rejected, offset=offset + 1, location=location, days=days,
-                                    reason=reason, title=title, replace=True)
-                for label, choice, action in (('Yes', 'yes', yes), ('No', 'no', no)):
-                    selected = decision is not None and decision['choice'] == choice
-                    button(self, label, action, row=3,
-                           style=discord.ButtonStyle.primary if selected else discord.ButtonStyle.secondary)
-                button(self, 'Skip', skip, row=3)
-                if decision and decision['kind'] == 'decision':
-                    async def undo(interaction):
-                        await update_decision(interaction, undo=True)
-                    button(self, 'Undo decision', undo, row=2)
-                if decision and decision['choice'] is not None:
-                    async def clear(interaction):
-                        await update_decision(interaction)
-                    button(self, 'Clear decision', clear, row=2)
-                    options = [discord.SelectOption(label='No reason', value='none', default=decision['reason'] is None)]
-                    options.extend(discord.SelectOption(label=label, value=value, default=decision['reason'] == value)
-                                   for value, label in REASONS.items())
-                    reason_select = discord.ui.Select(placeholder='Reason (optional)', options=options, row=4)
-                    async def add_reason(interaction):
-                        value = reason_select.values[0]
-                        await update_decision(interaction, decision['choice'], preference_reason=None if value == 'none' else value)
-                    reason_select.callback = add_reason
-                    self.add_item(reason_select)
+            async def rate(interaction):
+                if not await permitted(interaction):
+                    return
+                await interaction.response.defer(ephemeral=True)
+                await show_rating(interaction, record['key'], selection={'view': 'discord_review' if rejected else 'discord_jobs'}, expected_record=record)
+            button(self, 'Rate this job', rate, row=3)
             if not rejected:
                 return
             async def keep(interaction):
@@ -386,16 +435,10 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
             button(self, "Back to suggestions", suggestions, row=2)
 
     async def show_jobs(interaction, *, rejected=False, offset=0, location=None, days=None, reason=None, title=None,
-                        replace=False, learning_notice=None, anchor_key=None):
+                        replace=False):
         version, profile = await asyncio.to_thread(store.policy, owner)
         rows, total = await asyncio.to_thread(store.jobs, owner, rejected=rejected, location=location, days=days,
-                                            reason=reason, title=title, offset=0 if anchor_key else offset,
-                                            limit=1_000_000 if anchor_key else 1)
-        if anchor_key:
-            found = next((index for index, item in enumerate(rows) if item[0]['key'] == anchor_key), None)
-            rows = [rows[found]] if found is not None else []
-            if found is not None:
-                offset = found
+                                            reason=reason, title=title, offset=offset, limit=1)
         if not rows:
             view = PersonalView()
             if rejected:
@@ -403,7 +446,7 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
                     await interaction.response.defer(ephemeral=True)
                     await show_suggestions(interaction, replace=True)
                 button(view, "Back to suggestions", suggestions)
-            await display(interaction, (learning_notice + '\n' if learning_notice else '') + "No more postings in this view. Run /review or /jobs to start again. This view only covers last-observed active postings on monitored boards.", view, replace=replace)
+            await display(interaction, "No more postings in this view. Run /review or /jobs to start again. This view only covers last-observed active postings on monitored boards.", view, replace=replace)
             return
         record, match, reasons = rows[0]
         payload = json.loads(record["payload"])
@@ -419,28 +462,11 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
             text += "\nLatest board observation is failed or stale; verify the listing is still open."
         if location is not None or days is not None:
             text += "\nTemporary search. Your alert settings are unchanged."
-        snapshot, decision = None, None
-        try:
-            snapshot = await asyncio.to_thread(learning.capture, owner, record, version, profile,
-                selection={'view': 'discord_review' if rejected else 'discord_jobs',
-                           'location': location, 'days': days, 'reason': reason, 'title_group': title})
-            decision = await asyncio.to_thread(learning.labels.latest, owner, snapshot)
-            choice = decision['choice'].capitalize() if decision and decision['choice'] else 'Not labeled'
-            text += f'\n\n{QUESTION}\nYour decision: **{choice}**. Skip records nothing. No model trained yet.'
-            if decision and decision['reason']:
-                text += '\nReason: ' + REASONS.get(decision['reason'], 'Unrecognized saved reason')
-            if snapshot['candidate']['status'] == 'not_configured':
-                text += '\nCandidate profile is not attached; labels need context confirmation before training.'
-        except (OSError, ValueError, sqlite3.Error):
-            snapshot = None
-            text += '\n\nPreference labeling is unavailable. Browsing and alert rules are unchanged; reopen to retry.'
-        if learning_notice:
-            text += '\n' + learning_notice
         text += f"\n\n{offset + 1} of {total}. Controls expire in 10 minutes; reopen the command to continue."
         if rejected:
             text += "\nDismiss hides this job until its content or blocking reasons change; alert filters stay the same."
         view = JobsView(record, reasons, version, rejected=rejected, offset=offset, location=location, days=days, reason=reason,
-                        title=title, learning_snapshot=snapshot, decision=decision)
+                        title=title)
         await display(interaction, text, view, replace=replace)
 
     class ReviewClient(discord.Client):
@@ -459,6 +485,25 @@ def build_client(store, owner, guild_id, *, activation_timeout=30, learning=None
             await interaction.response.send_message("This personal monitor is restricted to its configured owner and server.", ephemeral=True)
             return False
         return True
+
+    @client.tree.context_menu(name="Rate this job")
+    async def rate_message(interaction: discord.Interaction, message: discord.Message):
+        if not await permitted(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        if trusted_alert is None:
+            await interaction.followup.send('Message rating is not configured yet. Use /jobs to rate saved roles.', ephemeral=True)
+            return
+        if (message.guild is None or message.guild.id != guild_id or
+                (message.channel.id, message.webhook_id) != trusted_alert or
+                interaction.channel_id != trusted_alert[0]):
+            await interaction.followup.send('Choose a job alert from the configured monitor channel and webhook.', ephemeral=True)
+            return
+        try:
+            record = await asyncio.to_thread(resolve_alert, store, message.content)
+            await show_rating(interaction, record['key'], selection={'view': 'discord_alert', 'message_id': str(message.id)}, expected_record=record)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            await failure(interaction, error)
 
     @client.tree.command(name="filters", description="View and change your job-alert rules with a preview")
     async def filters(interaction: discord.Interaction):
@@ -518,7 +563,9 @@ def main():
         store = ReviewStore(args.database)
         store.initialise(owner, json.loads(args.profile.read_text()))
         learning = LearningService(store, LearningStore(args.database.with_name('learning.sqlite3')), candidate_path=args.candidate)
-        client = build_client(store, owner, guild, learning=learning)
+        client = build_client(store, owner, guild, learning=learning,
+                              alert_channel_id=os.environ.get('JOB_MONITOR_REVIEW_ALERT_CHANNEL_ID'),
+                              alert_webhook_id=os.environ.get('JOB_MONITOR_REVIEW_ALERT_WEBHOOK_ID'))
         if args.check:
             print("Discord review commands constructed successfully; no connection, registration or message sent")
             return 0

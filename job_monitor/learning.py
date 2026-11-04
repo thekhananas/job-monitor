@@ -11,8 +11,8 @@ from job_monitor.prioritization import validate_candidate
 from job_monitor.review_store import ReviewConflict, ReviewStore, encode, signature
 
 
-TARGET = 'worth_applying_v1'
-QUESTION = 'Would you spend time applying to this role?'
+TARGET = 'consider_applying_v2'
+QUESTION = 'Would you consider applying?'
 REASONS = {
     'fit': 'Good fit', 'interest': 'Career interest', 'seniority': 'Seniority',
     'cohort': 'Graduate cohort', 'location': 'Location', 'experience': 'Experience gap',
@@ -210,7 +210,7 @@ class LearningService:
         return {'status': 'available', 'hash': signature(profile),
                 'revision': profile['profile_revision'], 'profile': profile}
 
-    def capture(self, user, record, version, policy, *, selection):
+    def capture(self, user, record, version, policy, *, selection, require_candidate=False):
         snapshot = {'user': str(user), 'target': TARGET, 'question': QUESTION,
                     'job_key': record['key'], 'job_hash': record['hash'],
                     'company': record['company'], 'board': record['board'],
@@ -218,6 +218,8 @@ class LearningService:
                     'screening': {'version': version, 'hash': signature(policy), 'profile': policy},
                     'selection': selection, 'observation': {'checked': record['checked'], 'source_error': record['error']},
                     'prediction_shown': None}
+        if require_candidate and snapshot['candidate']['status'] != 'available':
+            raise ValueError('Rating is unavailable until your candidate profile is configured.')
         validate_snapshot(user, snapshot)
         return snapshot
 
@@ -232,7 +234,7 @@ class LearningService:
         if (row is None or row['hash'] != snapshot['job_hash'] or row['company'] != snapshot['company']
                 or policy is None or signature(json.loads(policy['profile'])) != snapshot['screening']['hash']
                 or self.candidate()['hash'] != snapshot['candidate']['hash']):
-            raise ReviewConflict('The posting or your preferences changed. Reopen /jobs or /review before labeling.')
+            raise ReviewConflict('The posting or your preferences changed. Reopen Rate this job, /jobs or /review before labeling.')
 
     def decide(self, user, snapshot, choice, request, *, expected_id=None, reason=None):
         self._check_current(user, snapshot)

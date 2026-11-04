@@ -27,7 +27,7 @@ flowchart LR
 | `notifications` | Bounded messages and provider-specific delivery handling. |
 | `health` | Worker, source and delivery health projections. |
 | `review_store`, `review_runtime` | Versioned settings and asynchronous public-job storage. |
-| `review_bot`, `cli_menu` | Discord interaction and terminal presentation. |
+| `review_bot`, `rating`, `cli_menu` | Discord interaction, trusted-alert resolution and terminal presentation. |
 | `prioritization`, `rank_jobs`, `learning` | Experimental offline assessment and private preference storage. |
 
 Provider adapters isolate source differences. Pure screening/evaluation logic
@@ -47,8 +47,11 @@ can continue. Backoff and rate limits affect latency. Original publication is
 often unavailable, and employer feeds can lag the original careers page.
 
 Optional review, feedback and future ranking must not delay alerts. The
-experimental classifier, automatic retraining and alert-specific rating action
-are not implemented. No claim of learned recommendation quality is made.
+experimental classifier and automatic retraining are not implemented. The local
+alert-specific rating action resolves a trusted message's official link against
+saved jobs, then uses the existing private learning repository. It performs no
+network fetch and does not alter the notification sender. Real-SDK/phone checks
+remain pending; no claim of learned recommendation quality is made.
 
 The editable [Excalidraw drawing](job-monitor-system-design.excalidraw) and
 [SVG](job-monitor-system-design.svg) document an earlier system snapshot; the

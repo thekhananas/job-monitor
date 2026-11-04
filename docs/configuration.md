@@ -40,11 +40,37 @@ Yes/No preference label are distinct records.
 | `JOB_MONITOR_REVIEW_BOT_TOKEN` | Optional Discord review application token. |
 | `JOB_MONITOR_REVIEW_USER_ID` | Allowed review user; also enables worker projection when configured. |
 | `JOB_MONITOR_REVIEW_GUILD_ID` | Allowed Discord server. |
+| `JOB_MONITOR_REVIEW_ALERT_CHANNEL_ID` | Channel containing trusted monitor alerts, for message rating. |
+| `JOB_MONITOR_REVIEW_ALERT_WEBHOOK_ID` | ID of the alert webhook, for message rating. This is an ID, not its token or URL. |
 
 Install the optional `review` dependency, configure these IDs/token privately,
 and invite your Discord application with the `bot` and `applications.commands`
 scopes. Run `python3 -B scripts/review_bot.py` from the working directory.
 Starting the bot connects to Discord and registers commands.
+
+## Optional preference feedback
+
+The local feedback implementation adds **Rate this job** to a job alert's message
+menu under Apps. Configure both alert IDs above in the review bot's private
+environment file. They restrict the action to the intended channel and webhook;
+the bot does not need the webhook URL or delivery token. Existing slash commands
+remain available. With no alert IDs, browsing still works and message rating
+reports that setup is incomplete.
+
+Supply a validated, sanitized candidate profile at
+`~/.config/job-monitor/candidate.json`, or pass `--candidate` to the review bot.
+Use a private summary, never a raw resume. A missing or unreadable profile
+disables saving preferences while leaving the official application link usable.
+
+The private card asks **Would you consider applying?** Choose Yes or No. Saving
+offers Undo; More contains correction, withdrawal and an optional reason.
+Ignoring a role records nothing. `/jobs` and individual `/review` cards provide
+the same rating action without adding the full controls to every browsing card.
+
+The new target is `consider_applying_v2`. Older `worth_applying_v1` decisions
+remain stored under their original context and are not silently reinterpreted.
+Feedback does not change filters, send alerts or train a model. The local message
+action still needs real-SDK and phone verification before claiming live operation.
 
 ## Runtime files
 
