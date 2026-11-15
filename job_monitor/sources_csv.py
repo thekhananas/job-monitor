@@ -94,19 +94,23 @@ def render_sources_csv(config):
     return buffer.getvalue()
 
 
-def check_live_sources(config, *, fetcher=fetch):
-    """Probe each enabled board and return a list of (board_id, error) failures."""
+def check_live_sources(config, *, fetcher=fetch, attempts=2):
+    """Probe each enabled board, retrying transient timeouts/5xx once."""
     sources = [source for source in config["sources"] if source.get("enabled", True)]
     failures = []
 
     def probe(source):
         board_id = f"{source['provider']}:{source['board']}"
-        try:
-            fetcher(source)
-            return board_id, ""
-        except Exception as exc:
-            detail = type(exc).__name__ + (f" HTTP {exc.code}" if hasattr(exc, "code") else "")
-            return board_id, detail
+        for attempt in range(attempts):
+            try:
+                fetcher(source)
+                return board_id, ""
+            except Exception as exc:
+                code = getattr(exc, "code", None)
+                if (code is not None and 400 <= code < 500 and code != 429) or attempt + 1 >= attempts:
+                    detail = type(exc).__name__ + (f" HTTP {code}" if code is not None else "")
+                    return board_id, detail
+        return board_id, "Unknown error"
 
     with ThreadPoolExecutor(max_workers=min(4, len(sources))) as executor:
         futures = [executor.submit(probe, source) for source in sources]
