@@ -122,6 +122,21 @@
       "provider": "ashby",
       "board": "mistral.ai",
       "company": "Mistral"
+    },
+    {
+      "provider": "ashby",
+      "board": "openai",
+      "company": "OpenAI"
+    },
+    {
+      "provider": "ashby",
+      "board": "cognition",
+      "company": "Cognition"
+    },
+    {
+      "provider": "ashby",
+      "board": "cohere",
+      "company": "Cohere"
     }
   ]
 }

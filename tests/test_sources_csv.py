@@ -61,6 +61,20 @@ class SourcesCsvTests(unittest.TestCase):
 
         self.assertEqual(check_live_sources(config, fetcher=fake_fetcher), [("ashby:ameba", "FakeHTTPError HTTP 404")])
 
+    def test_check_live_sources_retries_transient_timeout(self):
+        config = parse_sources_csv("provider,board,company\nlever,apolloresearch,Apollo Research\n")
+        calls = 0
+
+        def flaky_fetcher(_source):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise TimeoutError("timed out")
+            return []
+
+        self.assertEqual(check_live_sources(config, fetcher=flaky_fetcher), [])
+        self.assertEqual(calls, 2)
+
     def test_cli_generates_and_checks_sync(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
