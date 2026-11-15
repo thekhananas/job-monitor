@@ -41,6 +41,10 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+      - name: Verify SSH connection
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+        run: ssh -v -o BatchMode=yes -o ConnectTimeout=10 "$DEPLOY_TARGET" "echo ok"
       - name: Deploy to VM
         env:
           DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
