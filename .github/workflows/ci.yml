@@ -20,4 +20,15 @@ jobs:
       - name: Install package and optional review integration
         run: python -m pip install -e '.[review]'
       - name: Run offline contracts
-        run: python -B -m unittest -v tests.test_monitor
+        run: python -B -m unittest discover -s tests -v
+      - name: Verify example sources CSV matches JSON
+        run: python -B scripts/sources_from_csv.py --csv config/sources.example.csv --out config/sources.example.json --check
+      - name: Validate configured sources and check live board URLs
+        run: |
+          if [ -f sources.csv ]; then
+            python -B scripts/sources_from_csv.py --check --check-live
+          elif [ -f sources.json ]; then
+            python -B -c "import json; from pathlib import Path; from job_monitor.monitor import validate_sources; from job_monitor.sources_csv import check_live_sources; cfg = json.loads(Path('sources.json').read_text()); validate_sources(cfg); failures = check_live_sources(cfg); print('\n'.join(f'{b}: {e}' for b, e in failures)); raise SystemExit(1 if failures else 0)"
+          else
+            echo "No sources.csv or sources.json committed; skipping live board check"
+          fi

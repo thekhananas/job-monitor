@@ -1,0 +1,4 @@
+provider,board,company,enabled,baseline_policy
+greenhouse,anthropic,Anthropic,true,
+lever,apolloresearch,Apollo Research,true,
+ashby,recraft,Recraft,true,
