@@ -16,6 +16,22 @@ A configured board does not guarantee coverage of every employer team.
 `suppress` records current jobs without alerting, while `notify` queues matching
 existing jobs. Both preserve history on later source failures.
 
+### Managing sources with CSV
+
+You can maintain organisations in a `sources.csv` table (see
+`config/sources.example.csv`) and generate `sources.json` for review before
+deploying:
+
+```sh
+python3 -B scripts/sources_from_csv.py --check-live
+git diff sources.json
+bash deployment/deploy.sh job-monitor --update-config
+```
+
+Required columns are `provider`, `board`, and `company`; optional columns are
+`enabled` (`true`/`false`) and `baseline_policy` (`suppress`/`notify`). Pass
+`--check` in CI to verify `sources.json` is up to date with `sources.csv`.
+
 ## Screening
 
 The example profile contains title keywords, excluded title phrases, years of
