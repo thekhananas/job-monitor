@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "baseline_policy": "suppress",
+  "sources": [
+    {
+      "provider": "greenhouse",
+      "board": "anthropic",
+      "company": "Anthropic"
+    },
+    {
+      "provider": "greenhouse",
+      "board": "scaleai",
+      "company": "Scale AI"
+    },
+    {
+      "provider": "greenhouse",
+      "board": "deliveroo",
+      "company": "Deliveroo"
+    },
+    {
+      "provider": "lever",
+      "board": "apolloresearch",
+      "company": "Apollo Research"
+    },
+    {
+      "provider": "lever",
+      "board": "palantir",
+      "company": "Palantir"
+    },
+    {
+      "provider": "ashby",
+      "board": "recraft",
+      "company": "Recraft"
+    },
+    {
+      "provider": "ashby",
+      "board": "frontier-health",
+      "company": "Frontier Health"
+    },
+    {
+      "provider": "ashby",
+      "board": "callosum",
+      "company": "Callosum"
+    },
+    {
+      "provider": "ashby",
+      "board": "plasma",
+      "company": "Plasma"
+    },
+    {
+      "provider": "ashby",
+      "board": "ameba",
+      "company": "Ameba",
+      "enabled": false
+    },
+    {
+      "provider": "ashby",
+      "board": "encord",
+      "company": "Encord"
+    },
+    {
+      "provider": "ashby",
+      "board": "sampura",
+      "company": "Sampura Research"
+    },
+    {
+      "provider": "ashby",
+      "board": "seamflow",
+      "company": "Seamflow"
+    },
+    {
+      "provider": "ashby",
+      "board": "almedia",
+      "company": "Almedia"
+    },
+    {
+      "provider": "ashby",
+      "board": "datatonic",
+      "company": "Datatonic"
+    },
+    {
+      "provider": "greenhouse",
+      "board": "monzo",
+      "company": "Monzo"
+    },
+    {
+      "provider": "greenhouse",
+      "board": "gocardless",
+      "company": "GoCardless"
+    },
+    {
+      "provider": "ashby",
+      "board": "faculty",
+      "company": "Faculty"
+    },
+    {
+      "provider": "ashby",
+      "board": "scarlet",
+      "company": "Scarlet"
+    },
+    {
+      "provider": "ashby",
+      "board": "magentic",
+      "company": "Magentic"
+    },
+    {
+      "provider": "ashby",
+      "board": "solveintelligence",
+      "company": "Solve Intelligence"
+    },
+    {
+      "provider": "ashby",
+      "board": "ankar",
+      "company": "Ankar"
+    },
+    {
+      "provider": "ashby",
+      "board": "claimsorted",
+      "company": "ClaimSorted"
+    },
+    {
+      "provider": "ashby",
+      "board": "mistral.ai",
+      "company": "Mistral"
+    }
+  ]
+}

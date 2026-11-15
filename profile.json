@@ -1,0 +1,19 @@
+{
+  "experience_years": 3.5,
+  "allow_uk_remote": true,
+  "allow_ambiguous_remote": true,
+  "ambiguous_remote_regions": ["Europe", "EMEA", "Worldwide", "Global", "Anywhere"],
+  "excluded_title_keywords": [
+    "principal", "director", "head of", "engineering manager", "software engineering manager"
+  ],
+  "title_keywords": [
+    "software engineer", "software developer", "software development engineer",
+    "backend engineer", "back end engineer", "backend developer", "back end developer",
+    "frontend engineer", "front end engineer", "frontend developer", "front end developer",
+    "full stack engineer", "full stack software engineer", "full stack developer",
+    "platform engineer", "infrastructure engineer", "devops engineer", "site reliability engineer",
+    "machine learning engineer",
+    "ml engineer", "ai engineer", "applied ai", "product engineer",
+    "forward deployed", "solutions engineer", "research engineer", "member of technical staff"
+  ]
+}
